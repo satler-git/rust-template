@@ -27,42 +27,49 @@
     }:
     flake-parts.lib.mkFlake { inherit inputs; } {
       systems = import inputs.systems;
-      perSystem = { config, system, pkgs, ... }:
+      perSystem =
+        {
+          config,
+          system,
+          pkgs,
+          ...
+        }:
         let
           treefmtEval = treefmt-nix.lib.evalModule pkgs ./treefmt.nix;
-        in {
-        _module.args.pkgs = import inputs.nixpkgs {
-          inherit system;
-          overlays = [
-            inputs.rust-overlay.overlays.default
-          ];
-        };
-        checks = {
-          pre-commit-check = inputs.pre-commit-hooks.lib.${system}.run {
-            src = ./.;
-            hooks = {
-              clippy.enable = true;
-              cargo-check.enable = true;
-            };
+        in
+        {
+          _module.args.pkgs = import inputs.nixpkgs {
+            inherit system;
+            overlays = [
+              inputs.rust-overlay.overlays.default
+            ];
           };
-          formatting = treefmtEval.config.build.check self;
+          checks = {
+            pre-commit-check = inputs.pre-commit-hooks.lib.${system}.run {
+              src = ./.;
+              hooks = {
+                clippy.enable = true;
+                cargo-check.enable = true;
+              };
+            };
+            formatting = treefmtEval.config.build.check self;
+          };
+
+          devShells.default = pkgs.mkShell {
+            buildInputs = with pkgs; [
+              rust-bin.stable.latest.default
+            ];
+          };
+
+          packages.default = pkgs.rustPlatform.buildRustPackage {
+            pname = "rust-template";
+            version = "0.1.0";
+
+            src = ./.;
+            cargoLock.lockFile = ./Cargo.lock;
+          };
+
+          formatter = treefmtEval.config.build.wrapper;
         };
-
-        devShells.default = pkgs.mkShell {
-          buildInputs = with pkgs; [
-            rust-bin.stable.latest.default
-          ];
-        };
-
-        packages.default = pkgs.rustPlatform.buildRustPackage {
-          pname = "rust-template";
-          version = "0.1.0";
-
-          src = ./.;
-          cargoLock.lockFile = ./Cargo.lock;
-        };
-
-        formatter = treefmtEval.config.build.wrapper;
     };
-  };
 }
