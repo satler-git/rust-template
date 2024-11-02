@@ -8,52 +8,61 @@
     };
     treefmt-nix.url = "github:numtide/treefmt-nix";
     pre-commit-hooks.url = "github:cachix/git-hooks.nix";
+
+    flake-parts = {
+      url = "github:hercules-ci/flake-parts";
+      inputs.nixpkgs-lib.follows = "nixpkgs";
+    };
+
+    systems.url = "github:nix-systems/default";
   };
 
   outputs =
-    {
+    inputs@{
       self,
       nixpkgs,
       treefmt-nix,
-      rust-overlay,
-      pre-commit-hooks,
+      flake-parts,
+      ...
     }:
-    let
-      system = "x86_64-linux";
-
-      pkgs = import nixpkgs {
-        inherit system;
-        overlays = [ rust-overlay.overlays.default ];
-      };
-
-      treefmtEval = treefmt-nix.lib.evalModule pkgs ./treefmt.nix;
-    in
-    {
-      checks.${system} = {
-        pre-commit-check = pre-commit-hooks.lib.${system}.run {
-          src = ./.;
-          hooks = {
-            clippy.enable = true;
-            cargo-check.enable = true;
-          };
+    flake-parts.lib.mkFlake { inherit inputs; } {
+      systems = import inputs.systems;
+      perSystem = { config, system, pkgs, ... }:
+        let
+          treefmtEval = treefmt-nix.lib.evalModule pkgs ./treefmt.nix;
+        in {
+        _module.args.pkgs = import inputs.nixpkgs {
+          inherit system;
+          overlays = [
+            inputs.rust-overlay.overlays.default
+          ];
         };
-        formatting = treefmtEval.config.build.check self;
-      };
+        checks = {
+          pre-commit-check = inputs.pre-commit-hooks.lib.${system}.run {
+            src = ./.;
+            hooks = {
+              clippy.enable = true;
+              cargo-check.enable = true;
+            };
+          };
+          formatting = treefmtEval.config.build.check self;
+        };
 
-      devShells.${system}.default = pkgs.mkShell {
-        buildInputs = with pkgs; [
-          rust-bin.stable.latest.default
-        ];
-      };
+        devShells.default = pkgs.mkShell {
+          buildInputs = with pkgs; [
+            rust-bin.stable.latest.default
+          ];
+        };
 
-      packages.${system}.default = pkgs.rustPlatform.buildRustPackage {
-        pname = "rust-template";
-        version = "0.1.0";
+        packages.default = pkgs.rustPlatform.buildRustPackage {
+          pname = "rust-template";
+          version = "0.1.0";
 
-        src = ./.;
-        cargoLock.lockFile = ./Cargo.lock;
-      };
+          src = ./.;
+          cargoLock.lockFile = ./Cargo.lock;
+        };
 
-      formatter.${system} = treefmtEval.config.build.wrapper;
+        formatter = treefmtEval.config.build.wrapper;
     };
+  };
 }
