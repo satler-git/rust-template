@@ -6,36 +6,63 @@
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    treefmt-nix.url = "github:numtide/treefmt-nix";
-    pre-commit-hooks.url = "github:cachix/git-hooks.nix";
 
     flake-parts = {
       url = "github:hercules-ci/flake-parts";
       inputs.nixpkgs-lib.follows = "nixpkgs";
     };
 
+    treefmt-nix.url = "github:numtide/treefmt-nix";
+    git-hooks-nix.url = "github:cachix/git-hooks.nix";
+
     systems.url = "github:nix-systems/default";
+
+    crane.url = "github:ipetkov/crane";
   };
 
   outputs =
     inputs@{
       self,
       nixpkgs,
-      treefmt-nix,
       flake-parts,
+      crane,
       ...
     }:
     flake-parts.lib.mkFlake { inherit inputs; } {
       systems = import inputs.systems;
+
+      imports = [
+        inputs.treefmt-nix.flakeModule
+        inputs.git-hooks-nix.flakeModule
+      ];
+
       perSystem =
         {
           config,
           system,
           pkgs,
+          lib,
           ...
         }:
         let
-          treefmtEval = treefmt-nix.lib.evalModule pkgs ./treefmt.nix;
+          rust-bin = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+          craneLib = (crane.mkLib pkgs).overrideToolchain rust-bin;
+
+          commonArgs = {
+            src = craneLib.cleanCargoSource ./.;
+            strictDeps = true;
+
+            buildInputs = with pkgs; [ ];
+
+            nativeBuildInputs = with pkgs; [ ];
+          };
+
+          cargoArtifacts = craneLib.buildDepsOnly (
+            commonArgs
+            // {
+              pname = "deps";
+            }
+          );
         in
         {
           _module.args.pkgs = import inputs.nixpkgs {
@@ -44,32 +71,65 @@
               inputs.rust-overlay.overlays.default
             ];
           };
-          checks = {
-            pre-commit-check = inputs.pre-commit-hooks.lib.${system}.run {
-              src = ./.;
+
+          treefmt = {
+            projectRootFile = "flake.nix";
+
+            programs = {
+              nixfmt.enable = true;
+              rustfmt = {
+                enable = true;
+                package = rust-bin;
+              };
+              actionlint.enable = true;
+            };
+          };
+
+          pre-commit = {
+            settings = {
               hooks = {
-                clippy.enable = true;
+                flake-treefmt = {
+                  enable = true;
+                  name = "flake-treefmt";
+                  entry = lib.getExe config.treefmt.build.wrapper;
+                  pass_filenames = false;
+                };
+
+                # clippy.enable = true;
                 cargo-check.enable = true;
+
+                clippy.packageOverrides.cargo = rust-bin;
+                clippy.packageOverrides.clippy = rust-bin;
+              };
+
+              settings.rust.check.cargoDeps = pkgs.rustPlatform.importCargoLock {
+                lockFile = ./Cargo.lock;
               };
             };
-            formatting = treefmtEval.config.build.check self;
           };
 
           devShells.default = pkgs.mkShell {
+            inputsFrom = [ config.pre-commit.devShell ];
+
             buildInputs = with pkgs; [
-              rust-bin.stable.latest.default
+              cargo-expand
+              cargo-nextest
+
+              rust-bin
             ];
           };
 
-          packages.default = pkgs.rustPlatform.buildRustPackage {
-            pname = "rust-template";
-            version = "0.1.0";
-
-            src = ./.;
-            cargoLock.lockFile = ./Cargo.lock;
-          };
-
-          formatter = treefmtEval.config.build.wrapper;
+          packages.default = craneLib.buildPackage (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              pname = "rust-template";
+              version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.version;
+              # For workspace
+              # cargoExtraArgs = "-p package_name";
+              # version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package.version;
+            }
+          );
         };
     };
 }
