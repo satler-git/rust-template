@@ -119,17 +119,15 @@
             ];
           };
 
-          packages.default = let
-              manifest = (builtins.fromTOML (builtins.readFile ./Cargo.toml));
-            in craneLib.buildPackage (
+          packages.default = craneLib.buildPackage (
             commonArgs
             // {
               inherit cargoArtifacts;
-              pname = manifest.package.name;
-              version = manifest.package.version;
+              pname = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.name;
+              version = "unstable-${self.shortRev or "dirty"}";
               # # For workspace
               # cargoExtraArgs = "-p package_name";
-              # version = manifest.workspace.package.version;
+              # version = "unstable-${self.shortRev or "dirty"}";
             }
           );
         };
