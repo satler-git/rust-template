@@ -119,15 +119,17 @@
             ];
           };
 
-          packages.default = craneLib.buildPackage (
+          packages.default = let
+              manifest = (builtins.fromTOML (builtins.readFile ./Cargo.toml));
+            in craneLib.buildPackage (
             commonArgs
             // {
               inherit cargoArtifacts;
-              pname = "rust-template";
-              version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.version;
-              # For workspace
+              pname = manifest.package.name;
+              version = manifest.package.version;
+              # # For workspace
               # cargoExtraArgs = "-p package_name";
-              # version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package.version;
+              # version = manifest.workspace.package.version;
             }
           );
         };
